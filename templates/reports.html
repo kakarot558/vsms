@@ -2,9 +2,57 @@
 {% block title %}Reports — VSMS{% endblock %}
 {% block page_title %}Sales Reports & Analytics{% endblock %}
 
-{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+.report-shortcut-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; padding:1rem 1.2rem; display:flex; align-items:center; gap:.9rem; cursor:pointer; text-decoration:none; color:inherit; transition:all .15s; }
+.report-shortcut-card:hover { border-color:#2e7d32; box-shadow:0 2px 12px rgba(46,125,50,.12); color:inherit; transform:translateY(-1px); }
+.report-shortcut-card .icon { width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0; }
+</style>
+{% endblock %}
 
 {% block content %}
+
+<!-- Report Shortcuts Row -->
+<div class="row g-3 mb-4 no-print">
+  <div class="col-md-4">
+    <a href="{{ url_for('reports.daily_report') }}" class="report-shortcut-card">
+      <div class="icon" style="background:#e8f5e9;color:#2e7d32;"><i class="bi bi-calendar-day-fill"></i></div>
+      <div>
+        <div class="fw-bold">Daily Report</div>
+        <div class="text-muted small">Today's sales &amp; inventory</div>
+      </div>
+      <i class="bi bi-arrow-right-circle ms-auto text-muted"></i>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('reports.weekly_report') }}" class="report-shortcut-card">
+      <div class="icon" style="background:#e3f2fd;color:#1565c0;"><i class="bi bi-calendar-week-fill"></i></div>
+      <div>
+        <div class="fw-bold">Weekly Report</div>
+        <div class="text-muted small">This week's performance</div>
+      </div>
+      <i class="bi bi-arrow-right-circle ms-auto text-muted"></i>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('reports.monthly_report') }}" class="report-shortcut-card">
+      <div class="icon" style="background:#f3e5f5;color:#6a1b9a;"><i class="bi bi-calendar-month-fill"></i></div>
+      <div>
+        <div class="fw-bold">Monthly Report</div>
+        <div class="text-muted small">This month's full breakdown</div>
+      </div>
+      <i class="bi bi-arrow-right-circle ms-auto text-muted"></i>
+    </a>
+  </div>
+</div>
+
+<!-- Toolbar -->
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+  <h5 class="mb-0 text-muted fw-semibold"><i class="bi bi-bar-chart-line me-2"></i>Analytics Overview</h5>
+</div>
+
+<div id="reportBody">
 <!-- Summary Stats -->
 <div class="stats-row mb-4">
     <div class="stat-card stat-success">
@@ -226,4 +274,5 @@ async function loadAuditLog() {
 }
 loadAuditLog();
 </script>
+</div><!-- /reportBody -->
 {% endblock %}

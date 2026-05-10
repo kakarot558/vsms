@@ -105,8 +105,17 @@
 
             {% if session.role in ['admin', 'inventory_manager'] %}
             <div class="nav-section-label">Analytics</div>
-            <a href="{{ url_for('reports.index') }}" class="nav-link {% if request.blueprint == 'reports' %}active{% endif %}">
-                <i class="bi bi-bar-chart-line-fill"></i><span>Reports</span>
+            <a href="{{ url_for('reports.index') }}" class="nav-link {% if request.endpoint == 'reports.index' %}active{% endif %}">
+                <i class="bi bi-bar-chart-line-fill"></i><span>Reports Overview</span>
+            </a>
+            <a href="{{ url_for('reports.daily_report') }}" class="nav-link nav-sub {% if request.endpoint == 'reports.daily_report' %}active{% endif %}">
+                <i class="bi bi-calendar-day"></i><span>Daily Report</span>
+            </a>
+            <a href="{{ url_for('reports.weekly_report') }}" class="nav-link nav-sub {% if request.endpoint == 'reports.weekly_report' %}active{% endif %}">
+                <i class="bi bi-calendar-week"></i><span>Weekly Report</span>
+            </a>
+            <a href="{{ url_for('reports.monthly_report') }}" class="nav-link nav-sub {% if request.endpoint == 'reports.monthly_report' %}active{% endif %}">
+                <i class="bi bi-calendar-month"></i><span>Monthly Report</span>
             </a>
             <a href="{{ url_for('alerts.index') }}" class="nav-link {% if request.blueprint == 'alerts' %}active{% endif %}">
                 <i class="bi bi-bell-fill"></i><span>Alerts</span>
@@ -117,6 +126,9 @@
             <div class="nav-section-label">System</div>
             <a href="{{ url_for('users.index') }}" class="nav-link {% if request.blueprint == 'users' %}active{% endif %}">
                 <i class="bi bi-people-fill"></i><span>Users</span>
+            </a>
+            <a href="{{ url_for('backup.index') }}" class="nav-link {% if request.blueprint == 'backup' %}active{% endif %}">
+                <i class="bi bi-shield-fill-check"></i><span>Backup & Restore</span>
             </a>
             {% endif %}
         </div>

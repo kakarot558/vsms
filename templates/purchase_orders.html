@@ -48,9 +48,14 @@
     {% endif %}
   </form>
   {% if session.role in ['admin','inventory_manager'] %}
-  <button class="btn-vsms btn-add" onclick="openCreateModal()">
-    <i class="bi bi-plus-circle-fill me-1"></i>New Purchase Order
-  </button>
+  <div class="d-flex gap-2">
+    <button class="btn-vsms btn-add" onclick="openCreateModal()">
+      <i class="bi bi-plus-circle-fill me-1"></i>New Purchase Order
+    </button>
+    <button class="btn-vsms" style="background:#e65100;border-color:#e65100;" onclick="openAutoReorder()">
+      <i class="bi bi-lightning-fill me-1"></i>Auto-Reorder
+    </button>
+  </div>
   {% endif %}
 </div>
 
@@ -248,6 +253,177 @@ function openRejectModal(pid, pnum) {
   new bootstrap.Modal(document.getElementById('rejectModal')).show();
 }
 
+// ── AUTO-REORDER ──────────────────────────────────────────────────────────────
+let autoReorderData = [];
+
+async function openAutoReorder() {
+  const modal = new bootstrap.Modal(document.getElementById('autoReorderModal'));
+  const body  = document.getElementById('arBody');
+  const footer = document.getElementById('arFooter');
+  body.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-success"></div><p class="mt-2 text-muted">Scanning inventory for low-stock items…</p></div>`;
+  footer.style.display = 'none';
+  modal.show();
+
+  try {
+    const res  = await fetch('/api/purchase-orders/auto-reorder-suggestions');
+    const data = await res.json();
+    autoReorderData = data.suggestions;
+
+    if (!autoReorderData.length) {
+      body.innerHTML = `<div class="text-center py-4 text-success"><i class="bi bi-check-circle-fill" style="font-size:2.5rem"></i><p class="mt-2 fw-semibold">All stock levels are sufficient!</p><p class="text-muted small">No items are at or below their low-stock threshold.</p></div>`;
+      return;
+    }
+
+    // Group by supplier for display
+    const bySupplier = {};
+    autoReorderData.forEach((item, idx) => {
+      const key = item.supplier_name;
+      if (!bySupplier[key]) bySupplier[key] = [];
+      bySupplier[key].push({...item, _idx: idx});
+    });
+
+    let html = `<p class="text-muted small mb-3"><i class="bi bi-info-circle me-1"></i>Review and adjust quantities before generating. Separate Purchase Orders will be created per supplier.</p>`;
+    Object.entries(bySupplier).forEach(([supplier, items]) => {
+      html += `<div class="mb-3">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="badge bg-success">${supplier}</span>
+          <small class="text-muted">${items.length} item(s)</small>
+        </div>
+        <table class="vsms-table mb-0" style="font-size:.85rem">
+          <thead><tr><th style="width:32px"><input type="checkbox" class="form-check-input supplier-check" data-supplier="${supplier}" checked onchange="toggleSupplier(this)"></th><th>Product</th><th>Stock</th><th>Threshold</th><th style="width:110px">Qty to Order</th><th>Est. Cost</th></tr></thead>
+          <tbody>`;
+      items.forEach(item => {
+        html += `<tr data-idx="${item._idx}" data-supplier="${supplier}">
+          <td><input type="checkbox" class="form-check-input row-check" data-idx="${item._idx}" checked></td>
+          <td><div class="fw-semibold">${item.product_name}</div><small class="text-muted">${item.category} · ${item.unit}</small></td>
+          <td><span class="${item.current_stock === 0 ? 'badge bg-danger' : 'badge bg-warning text-dark'}">${item.current_stock}</span></td>
+          <td>${item.threshold}</td>
+          <td><input type="number" class="form-control form-control-sm ar-qty" min="1" value="${item.suggested_qty}" data-idx="${item._idx}" data-cost="${item.unit_cost}" onchange="updateARRow(this)"></td>
+          <td class="ar-subtotal-${item._idx}">₱${(item.suggested_qty * item.unit_cost).toFixed(2)}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+    });
+
+    html += `<div class="alert alert-info py-2 mt-2 small d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-cash-coin me-1"></i>Estimated Total:</span>
+      <strong id="arGrandTotal">₱${autoReorderData.reduce((s,i) => s + i.suggested_qty * i.unit_cost, 0).toFixed(2)}</strong>
+    </div>`;
+
+    body.innerHTML = html;
+    footer.style.display = '';
+  } catch(e) {
+    body.innerHTML = `<div class="alert alert-danger">Failed to load suggestions: ${e.message}</div>`;
+  }
+}
+
+function updateARRow(input) {
+  const idx = input.dataset.idx;
+  const cost = parseFloat(input.dataset.cost) || 0;
+  const qty  = parseInt(input.value) || 0;
+  const sub  = qty * cost;
+  const cell = document.querySelector(`.ar-subtotal-${idx}`);
+  if (cell) cell.textContent = '₱' + sub.toFixed(2);
+  updateARTotal();
+}
+
+function toggleSupplier(cb) {
+  const supplier = cb.dataset.supplier;
+  document.querySelectorAll(`tr[data-supplier="${supplier}"] .row-check`).forEach(c => c.checked = cb.checked);
+  updateARTotal();
+}
+
+function updateARTotal() {
+  let total = 0;
+  document.querySelectorAll('.row-check:checked').forEach(cb => {
+    const idx = cb.dataset.idx;
+    const row = document.querySelector(`tr[data-idx="${idx}"]`);
+    if (!row) return;
+    const qty  = parseInt(row.querySelector('.ar-qty').value) || 0;
+    const cost = parseFloat(row.querySelector('.ar-qty').dataset.cost) || 0;
+    total += qty * cost;
+  });
+  const el = document.getElementById('arGrandTotal');
+  if (el) el.textContent = '₱' + total.toFixed(2);
+}
+
+async function generateAutoOrders() {
+  const btn = document.getElementById('arGenBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating…';
+
+  // Collect checked items with current quantities
+  const items = [];
+  document.querySelectorAll('.row-check:checked').forEach(cb => {
+    const idx  = parseInt(cb.dataset.idx);
+    const item = autoReorderData[idx];
+    const row  = document.querySelector(`tr[data-idx="${idx}"]`);
+    const qty  = parseInt(row?.querySelector('.ar-qty')?.value) || item.suggested_qty;
+    items.push({
+      product_id:  item.product_id,
+      supplier_id: item.supplier_id,
+      quantity:    qty,
+      unit_cost:   item.unit_cost,
+    });
+  });
+
+  if (!items.length) {
+    alert('No items selected.');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-lightning-fill me-1"></i>Generate Purchase Orders';
+    return;
+  }
+
+  try {
+    const res  = await fetch('/purchase-orders/auto-create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({items})
+    });
+    const data = await res.json();
+    if (data.success) {
+      bootstrap.Modal.getInstance(document.getElementById('autoReorderModal')).hide();
+      // Show success message and reload
+      const banner = document.createElement('div');
+      banner.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
+      banner.style.zIndex = 9999;
+      banner.innerHTML = `<i class="bi bi-check-circle-fill me-2"></i>${data.message} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+      document.body.appendChild(banner);
+      setTimeout(() => location.reload(), 2000);
+    } else {
+      alert('Error: ' + data.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-lightning-fill me-1"></i>Generate Purchase Orders';
+    }
+  } catch(e) {
+    alert('Request failed: ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-lightning-fill me-1"></i>Generate Purchase Orders';
+  }
+}
+
 // (items are managed by openCreateModal — no duplicate listener needed)
 </script>
+
+<!-- ── Auto-Reorder Modal ─────────────────────────────────────────────────── -->
+<div class="modal fade" id="autoReorderModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#e65100;color:#fff;">
+        <h5 class="modal-title"><i class="bi bi-lightning-fill me-2"></i>Auto-Reorder — Low Stock Suggestions</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="arBody" style="min-height:200px;">
+        <!-- filled by JS -->
+      </div>
+      <div class="modal-footer" id="arFooter" style="display:none;">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-warning fw-bold" id="arGenBtn" onclick="generateAutoOrders()">
+          <i class="bi bi-lightning-fill me-1"></i>Generate Purchase Orders
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}

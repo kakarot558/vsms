@@ -39,6 +39,7 @@ def audit(user_id, action, desc):
 # ── LIST ──────────────────────────────────────────────────────────────────────
 @po_bp.route('/purchase-orders')
 @login_required
+@role_required('admin', 'inventory_manager')
 def index():
     conn = get_db()
     status_filter = request.args.get('status', '')
@@ -421,3 +422,98 @@ def direct_approve(po_id):
     finally:
         conn.close()
     return redirect(url_for('purchase_orders.index'))
+
+
+# ── AUTO-REORDER: Suggest low-stock items ──────────────────────────────────────
+@po_bp.route('/api/purchase-orders/auto-reorder-suggestions')
+@login_required
+def auto_reorder_suggestions():
+    conn = get_db()
+    low_items = conn.execute("""
+        SELECT p.product_id, p.product_name, p.category, p.unit,
+               p.stock, p.low_stock_threshold, p.cost_price, p.supplier_id,
+               s.name as supplier_name
+        FROM products p
+        LEFT JOIN suppliers s ON p.supplier_id = s.supplier_id
+        WHERE p.is_active=1 AND p.stock <= p.low_stock_threshold
+        ORDER BY (p.low_stock_threshold - p.stock) DESC
+    """).fetchall()
+
+    # Calculate suggested reorder qty: enough to bring to 3x the threshold
+    suggestions = []
+    for item in low_items:
+        target = item['low_stock_threshold'] * 3
+        suggested_qty = max(target - item['stock'], item['low_stock_threshold'])
+        suggestions.append({
+            'product_id':        item['product_id'],
+            'product_name':      item['product_name'],
+            'category':          item['category'],
+            'unit':              item['unit'],
+            'current_stock':     item['stock'],
+            'threshold':         item['low_stock_threshold'],
+            'suggested_qty':     suggested_qty,
+            'unit_cost':         item['cost_price'],
+            'subtotal':          round(suggested_qty * item['cost_price'], 2),
+            'supplier_id':       item['supplier_id'],
+            'supplier_name':     item['supplier_name'] or 'Unknown',
+        })
+    conn.close()
+    return jsonify({'suggestions': suggestions, 'count': len(suggestions)})
+
+
+# ── AUTO-REORDER: Create draft PO from suggestions ────────────────────────────
+@po_bp.route('/purchase-orders/auto-create', methods=['POST'])
+@login_required
+@role_required('admin', 'inventory_manager')
+def auto_create_po():
+    data = request.get_json()
+    if not data or not data.get('items'):
+        return jsonify({'success': False, 'message': 'No items provided'}), 400
+
+    items_by_supplier = {}
+    for item in data['items']:
+        sid = item.get('supplier_id') or 0
+        items_by_supplier.setdefault(sid, []).append(item)
+
+    conn = get_db()
+    created_pos = []
+    try:
+        for supplier_id, items in items_by_supplier.items():
+            if not supplier_id:
+                continue  # Skip items with no supplier
+            total = sum(i['quantity'] * i['unit_cost'] for i in items)
+            po_number = gen_po_number()
+            conn.execute("""
+                INSERT INTO purchase_orders
+                    (po_number, supplier_id, status, total_amount, notes, created_by, created_at, updated_at)
+                VALUES (?,?,'pending',?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+            """, (po_number, supplier_id, round(total, 2),
+                  'Auto-generated reorder — please review before confirming.',
+                  session['user_id']))
+            po_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+            for item in items:
+                # Look up product name from DB
+                prod = conn.execute("SELECT product_name FROM products WHERE product_id=?",
+                                    (item['product_id'],)).fetchone()
+                prod_name = prod['product_name'] if prod else 'Unknown Product'
+                conn.execute("""
+                    INSERT INTO purchase_order_items
+                        (po_id, product_id, product_name, quantity_ordered, unit_cost)
+                    VALUES (?,?,?,?,?)
+                """, (po_id, item['product_id'], prod_name, item['quantity'], item['unit_cost']))
+
+            conn.execute("""
+                INSERT INTO audit_logs (user_id, action, module, description) VALUES (?,?,?,?)
+            """, (session['user_id'], 'AUTO_PO_CREATED', 'Purchase Orders',
+                  f'Auto-reorder PO {po_number} created with {len(items)} item(s) for supplier #{supplier_id}'))
+            created_pos.append(po_number)
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    conn.close()
+    return jsonify({'success': True, 'created': created_pos,
+                    'message': f'{len(created_pos)} Purchase Order(s) created as draft. Please review and confirm.'})

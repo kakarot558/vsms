@@ -136,12 +136,12 @@
 .pos-toast.ti{border-left-color:#0284c7;color:#0284c7}
 
 /* Receipt */
-.rcpt{font-family:'Courier New',monospace;font-size:12px;max-width:300px;margin:0 auto;background:#fff}
+.rcpt{font-family:'Courier New',monospace;font-size:15px;max-width:320px;margin:0 auto;background:#fff}
 .rcpt-center{text-align:center}
-.rcpt-divider{border:none;border-top:1px dashed #ccc;margin:.4rem 0}
-.rcpt-row{display:flex;justify-content:space-between;margin:.1rem 0;font-size:11px}
-.rcpt-total{display:flex;justify-content:space-between;font-weight:800;font-size:14px;margin:.2rem 0}
-.rcpt-pay{background:#f9f9f9;border:1px solid #eee;border-radius:3px;padding:.35rem .55rem;margin:.3rem 0;font-size:11px}
+.rcpt-divider{border:none;border-top:1px dashed #ccc;margin:.5rem 0}
+.rcpt-row{display:flex;justify-content:space-between;margin:.18rem 0;font-size:14px}
+.rcpt-total{display:flex;justify-content:space-between;font-weight:800;font-size:18px;margin:.3rem 0}
+.rcpt-pay{background:#f9f9f9;border:1px solid #eee;border-radius:3px;padding:.45rem .65rem;margin:.35rem 0;font-size:14px}
 
 /* Barcode label */
 .bc-preview-wrap{background:#f8fafc;border:1.5px dashed #e2e8f0;border-radius:10px;padding:1.2rem;text-align:center;min-height:110px;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.5rem}
@@ -1009,32 +1009,32 @@ function buildReceipt(data, pm, amountPaid) {
   const vatAmt = data.vat_amount || (t.total_amount * VAT_RATE / (1+VAT_RATE));
 
   let html = `<div class="rcpt" id="printRcptEl">
-    <div class="rcpt-center" style="margin-bottom:.4rem">
-      <div style="font-size:1.5rem">🐾</div>
-      <div style="font-weight:800;font-size:13px">${STORE_NAME}</div>
-      <div style="font-size:11px;color:#777">${STORE_SUB}</div>
-      <div style="font-size:10px;color:#aaa">${new Date().toLocaleString('en-PH')}</div>
+    <div class="rcpt-center" style="margin-bottom:.5rem">
+      <div style="font-size:1.8rem">🐾</div>
+      <div style="font-weight:800;font-size:16px">${STORE_NAME}</div>
+      <div style="font-size:13px;color:#777">${STORE_SUB}</div>
+      <div style="font-size:12px;color:#aaa">${new Date().toLocaleString('en-PH')}</div>
     </div>
     <hr class="rcpt-divider">
-    <div style="font-size:11px;display:flex;justify-content:space-between">
+    <div style="font-size:13px;display:flex;justify-content:space-between">
       <span>TXN: <strong>${t.transaction_code}</strong></span>
       <span>Cashier #${t.cashier_id}</span>
     </div>
-    <div style="font-size:11px;margin:.2rem 0">Customer: <strong>${t.customer_name}</strong></div>
+    <div style="font-size:13px;margin:.25rem 0">Customer: <strong>${t.customer_name}</strong></div>
     <hr class="rcpt-divider">
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
       <thead><tr style="border-bottom:1px solid #eee">
-        <th style="text-align:left;font-size:10px;padding:2px 0">ITEM</th>
-        <th style="text-align:center;font-size:10px">QTY</th>
-        <th style="text-align:right;font-size:10px">AMT</th>
+        <th style="text-align:left;font-size:12px;padding:3px 0">ITEM</th>
+        <th style="text-align:center;font-size:12px">QTY</th>
+        <th style="text-align:right;font-size:12px">AMT</th>
       </tr></thead><tbody>`;
 
   its.forEach(i => {
     html += `<tr>
-      <td style="padding:2px 0;font-size:11px">${i.product_name}<br>
-        <span style="color:#aaa;font-size:10px">₱${i.unit_price.toFixed(2)} ea</span></td>
-      <td style="text-align:center;font-size:11px">${i.quantity}</td>
-      <td style="text-align:right;font-size:11px;font-weight:700">₱${i.total_price.toFixed(2)}</td>
+      <td style="padding:3px 0;font-size:14px">${i.product_name}<br>
+        <span style="color:#aaa;font-size:12px">₱${i.unit_price.toFixed(2)} ea</span></td>
+      <td style="text-align:center;font-size:14px">${i.quantity}</td>
+      <td style="text-align:right;font-size:14px;font-weight:700">₱${i.total_price.toFixed(2)}</td>
     </tr>`;
   });
 
@@ -1045,11 +1045,11 @@ function buildReceipt(data, pm, amountPaid) {
   if (t.discount_amount > 0)
     html += `<div class="rcpt-row" style="color:#dc2626"><span>Discount (${t.discount_percent}%)</span><span>-₱${t.discount_amount.toFixed(2)}</span></div>`;
 
-  html += `<div class="rcpt-row" style="color:#aaa;font-size:10px"><span>VAT (12%)</span><span>₱${vatAmt.toFixed(2)}</span></div>
+  html += `<div class="rcpt-row" style="color:#aaa;font-size:12px"><span>VAT (12%)</span><span>₱${vatAmt.toFixed(2)}</span></div>
     <div class="rcpt-total"><span>TOTAL</span><span>₱${t.total_amount.toFixed(2)}</span></div>
     <hr class="rcpt-divider">
     <div class="rcpt-pay">
-      <div style="font-weight:700;margin-bottom:3px">PAYMENT: ${pmLabel}</div>`;
+      <div style="font-weight:700;margin-bottom:4px;font-size:14px">PAYMENT: ${pmLabel}</div>`;
 
   if (pm.method === 'cash') {
     html += `<div class="rcpt-row"><span>Tendered</span><span>₱${amountPaid.toFixed(2)}</span></div>
@@ -1076,14 +1076,14 @@ function buildReceipt(data, pm, amountPaid) {
 function printReceipt() {
   const el = document.getElementById('printRcptEl');
   if (!el) return;
-  const w = window.open('','_blank','width=380,height=680');
+  const w = window.open('','_blank','width=420,height=750');
   if (!w) { toast('Pop-up blocked! Allow pop-ups to print.','w'); return; }
   w.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
-    <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Courier New',monospace;padding:10px;background:#fff}
-    .rcpt{max-width:300px;margin:0 auto}.rcpt-center{text-align:center}.rcpt-divider{border:none;border-top:1px dashed #ccc;margin:4px 0}
-    .rcpt-row{display:flex;justify-content:space-between;margin:1px 0;font-size:11px}.rcpt-total{display:flex;justify-content:space-between;font-weight:800;font-size:14px;margin:2px 0}
-    .rcpt-pay{background:#f9f9f9;border:1px solid #eee;padding:4px 6px;margin:3px 0;font-size:11px}
-    @media print{body{padding:2px}}</style>
+    <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Courier New',monospace;padding:12px;background:#fff}
+    .rcpt{max-width:320px;margin:0 auto}.rcpt-center{text-align:center}.rcpt-divider{border:none;border-top:1px dashed #ccc;margin:6px 0}
+    .rcpt-row{display:flex;justify-content:space-between;margin:2px 0;font-size:14px}.rcpt-total{display:flex;justify-content:space-between;font-weight:800;font-size:18px;margin:4px 0}
+    .rcpt-pay{background:#f9f9f9;border:1px solid #eee;padding:6px 8px;margin:4px 0;font-size:14px}
+    @media print{body{padding:4px}}</style>
   </head><body>${el.outerHTML}
   <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};<\/script>
   </body></html>`);

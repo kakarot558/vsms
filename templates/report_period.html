@@ -1,0 +1,559 @@
+{% extends "base.html" %}
+{% block title %}{{ period }} Report — VSMS{% endblock %}
+{% block page_title %}{{ period }} Sales & Inventory Report{% endblock %}
+
+{% block head %}
+<style>
+/* ═══════════════════════════════════════════════════
+   SCREEN-ONLY STYLES
+═══════════════════════════════════════════════════ */
+.report-shortcut-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; padding:1rem 1.2rem; display:flex; align-items:center; gap:.9rem; text-decoration:none; color:inherit; transition:all .15s; }
+.report-shortcut-card:hover { border-color:#2e7d32; box-shadow:0 2px 12px rgba(46,125,50,.12); }
+
+/* ═══════════════════════════════════════════════════
+   PRINT LAYOUT — completely separate clean structure
+═══════════════════════════════════════════════════ */
+@page {
+  size: A4 portrait;
+  margin: 0;   /* suppresses browser-printed date, URL, page number */
+}
+
+@media print {
+  /* compensate for zeroed @page margins */
+  body { padding: 14mm 12mm !important; }
+
+  /* ── Hide ALL screen chrome ── */
+  .sidebar, .topbar, .page-header,
+  .no-print, .nav-period,
+  .btn, .btn-vsms, .btn-vsms-outline,
+  .page-actions-bar, .vsms-tabs, .vsms-pills,
+  canvas, .chart-card, #trendChart,
+  .alert { display: none !important; }
+
+  /* ── Reset body ── */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body, html { background: #fff !important; font-family: Arial, sans-serif !important; font-size: 9pt !important; color: #111 !important; margin: 0 !important; padding: 0 !important; }
+  .main-content { margin-left: 0 !important; padding: 0 !important; }
+  .page-content  { padding: 0 !important; }
+
+  /* ── Print header ── */
+  .print-header {
+    display: block !important;
+    text-align: center;
+    border-bottom: 2.5pt solid #2e7d32;
+    padding-bottom: 6pt;
+    margin-bottom: 10pt;
+  }
+  .print-header h1 { font-size: 14pt !important; font-weight: 800; color: #2e7d32 !important; margin: 0 0 2pt 0; }
+  .print-header h2 { font-size: 11pt !important; font-weight: 600; color: #333 !important; margin: 0 0 2pt 0; }
+  .print-header p  { font-size: 8pt !important; color: #777 !important; margin: 0; }
+
+  /* ── Stat grid (2 rows × 3 cols) ── */
+  .print-stat-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5pt;
+    margin-bottom: 10pt;
+  }
+  .print-stat-box {
+    border: 1pt solid #ccc;
+    border-radius: 4pt;
+    padding: 6pt 8pt;
+    text-align: center;
+  }
+  .print-stat-box .psb-val { font-size: 13pt !important; font-weight: 800; color: #2e7d32 !important; display: block; line-height: 1.2; }
+  .print-stat-box .psb-lbl { font-size: 7.5pt !important; color: #666 !important; display: block; margin-top: 1pt; }
+
+  /* ── Section cards ── */
+  .print-section {
+    margin-bottom: 9pt;
+    page-break-inside: avoid;
+    border: 1pt solid #ddd;
+    border-radius: 4pt;
+    overflow: hidden;
+  }
+  .print-section-header {
+    background: #2e7d32 !important;
+    color: #fff !important;
+    padding: 4pt 8pt;
+    font-size: 9pt !important;
+    font-weight: 700;
+  }
+  .print-section-header i { display: none; } /* icons may not render in print */
+
+  /* ── Tables ── */
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5pt !important;
+  }
+  .print-table thead tr { background: #f0f7f1 !important; }
+  .print-table th {
+    padding: 4pt 6pt !important;
+    font-size: 8pt !important;
+    font-weight: 700;
+    border-bottom: 1pt solid #ccc;
+    text-align: left;
+  }
+  .print-table td {
+    padding: 3.5pt 6pt !important;
+    font-size: 8.5pt !important;
+    border-bottom: 1pt solid #eee;
+  }
+  .print-table tfoot td {
+    font-weight: 800;
+    border-top: 1.5pt solid #999;
+    border-bottom: none;
+    background: #f9f9f9 !important;
+  }
+  .print-table .text-end { text-align: right !important; }
+  .print-table .text-center { text-align: center !important; }
+
+  /* ── Badges in print ── */
+  .badge {
+    border: 1pt solid #aaa !important;
+    background: #eee !important;
+    color: #333 !important;
+    padding: 1pt 4pt !important;
+    font-size: 7.5pt !important;
+    border-radius: 3pt !important;
+  }
+
+  /* ── Status badges ── */
+  .badge-out  { background: #fee2e2 !important; color: #991b1b !important; border-color: #fca5a5 !important; }
+  .badge-low  { background: #fef3c7 !important; color: #92400e !important; border-color: #fcd34d !important; }
+  .badge-ok   { background: #dcfce7 !important; color: #166534 !important; border-color: #86efac !important; }
+
+  /* ── Page footer ── */
+  .print-footer {
+    display: block !important;
+    position: fixed;
+    bottom: 6mm;
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 7.5pt !important;
+    color: #aaa !important;
+    border-top: 0.5pt solid #ddd;
+    padding-top: 3pt;
+  }
+
+  /* ── Hide screen-only elements ── */
+  .screen-only { display: none !important; }
+
+  /* ── Show print-only elements ── */
+  .print-only  { display: block !important; }
+  .print-only-flex { display: flex !important; }
+  .print-only-grid { display: grid !important; }
+}
+
+/* ── On screen: hide print-only elements ── */
+@media screen {
+  .print-header  { display: none; }
+  .print-only    { display: none !important; }
+  .print-only-flex { display: none !important; }
+  .print-only-grid { display: none !important; }
+  .print-footer  { display: none; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ══════════════════════════════════════════════
+     PRINT-ONLY DOCUMENT STRUCTURE
+══════════════════════════════════════════════ -->
+
+<!-- Print header -->
+<div class="print-header">
+  <h1>🐾 VSMS — Veterinary Supply Management System</h1>
+  <h2>{{ period }} Report &nbsp;|&nbsp; {{ period_label }}</h2>
+  <p>Generated: {{ now().strftime('%Y-%m-%d %H:%M') if now is defined else '' }} &nbsp;|&nbsp; Confidential</p>
+</div>
+
+<!-- Print stat grid -->
+<div class="print-only-grid print-stat-grid">
+  <div class="print-stat-box">
+    <span class="psb-val">₱{{ "%.2f"|format(data.revenue) }}</span>
+    <span class="psb-lbl">Total Revenue</span>
+  </div>
+  <div class="print-stat-box">
+    <span class="psb-val">₱{{ "%.2f"|format(data.profit) }}</span>
+    <span class="psb-lbl">Gross Profit</span>
+  </div>
+  <div class="print-stat-box">
+    <span class="psb-val">{{ data.txn_count }}</span>
+    <span class="psb-lbl">Transactions</span>
+  </div>
+  <div class="print-stat-box">
+    <span class="psb-val">₱{{ "%.2f"|format(data.discounts) }}</span>
+    <span class="psb-lbl">Discounts Given</span>
+  </div>
+  <div class="print-stat-box">
+    <span class="psb-val">+{{ data.stock_received }}</span>
+    <span class="psb-lbl">Units Received</span>
+  </div>
+  <div class="print-stat-box">
+    <span class="psb-val">-{{ data.stock_out }}</span>
+    <span class="psb-lbl">Units Sold</span>
+  </div>
+</div>
+
+<!-- Print: Daily Breakdown -->
+{% if data.daily_breakdown|length > 1 %}
+<div class="print-only print-section">
+  <div class="print-section-header">Daily Breakdown</div>
+  <table class="print-table">
+    <thead><tr>
+      <th>Date</th>
+      <th class="text-center">Transactions</th>
+      <th class="text-end">Revenue</th>
+    </tr></thead>
+    <tbody>
+      {% for row in data.daily_breakdown %}
+      <tr>
+        <td>{{ row.date }}</td>
+        <td class="text-center">{{ row.count }}</td>
+        <td class="text-end">₱{{ "%.2f"|format(row.revenue) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr>
+      <td>TOTAL</td>
+      <td class="text-center">{{ data.txn_count }}</td>
+      <td class="text-end">₱{{ "%.2f"|format(data.revenue) }}</td>
+    </tr></tfoot>
+  </table>
+</div>
+{% endif %}
+
+<!-- Print: Category Sales -->
+{% if data.category_sales %}
+<div class="print-only print-section">
+  <div class="print-section-header">Sales by Category</div>
+  <table class="print-table">
+    <thead><tr>
+      <th>Category</th>
+      <th class="text-center">Units Sold</th>
+      <th class="text-end">Revenue</th>
+      <th class="text-end">% Share</th>
+    </tr></thead>
+    <tbody>
+      {% for cat in data.category_sales %}
+      <tr>
+        <td>{{ cat.category }}</td>
+        <td class="text-center">{{ cat.units_sold }}</td>
+        <td class="text-end">₱{{ "%.2f"|format(cat.revenue) }}</td>
+        <td class="text-end">{% if data.revenue > 0 %}{{ "%.1f"|format(cat.revenue / data.revenue * 100) }}%{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Print: Top Sellers -->
+{% if data.top_sellers %}
+<div class="print-only print-section">
+  <div class="print-section-header">Top Selling Products</div>
+  <table class="print-table">
+    <thead><tr>
+      <th>#</th>
+      <th>Product</th>
+      <th>Category</th>
+      <th class="text-center">Qty Sold</th>
+      <th class="text-end">Revenue</th>
+      <th class="text-end">Profit</th>
+    </tr></thead>
+    <tbody>
+      {% for p in data.top_sellers %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ p.product_name }}</td>
+        <td>{{ p.category }}</td>
+        <td class="text-center">{{ p.total_sold }} {{ p.unit }}</td>
+        <td class="text-end">₱{{ "%.2f"|format(p.revenue) }}</td>
+        <td class="text-end">₱{{ "%.2f"|format(p.profit) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Print: Low Stock -->
+<div class="print-only print-section">
+  <div class="print-section-header">Low Stock Inventory</div>
+  {% if data.low_stock %}
+  <table class="print-table">
+    <thead><tr>
+      <th>Product</th>
+      <th>Category</th>
+      <th class="text-center">Stock</th>
+      <th class="text-center">Threshold</th>
+      <th>Status</th>
+    </tr></thead>
+    <tbody>
+      {% for item in data.low_stock %}
+      <tr>
+        <td>{{ item.product_name }}</td>
+        <td>{{ item.category }}</td>
+        <td class="text-center">{{ item.stock }} {{ item.unit }}</td>
+        <td class="text-center">{{ item.low_stock_threshold }}</td>
+        <td>
+          {% if item.stock == 0 %}
+            <span class="badge badge-out">Out of Stock</span>
+          {% else %}
+            <span class="badge badge-low">Low Stock</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="padding:6pt 8pt;font-size:8.5pt;color:#555;">✓ All products are sufficiently stocked.</div>
+  {% endif %}
+</div>
+
+<!-- Print footer -->
+<div class="print-footer">
+  VSMS — {{ period }} Report: {{ period_label }} &nbsp;|&nbsp; Confidential &nbsp;|&nbsp; Generated {{ now().strftime('%Y-%m-%d %H:%M') if now is defined else '' }}
+</div>
+
+
+<!-- ══════════════════════════════════════════════
+     SCREEN-ONLY CONTENT
+══════════════════════════════════════════════ -->
+
+<!-- Controls bar -->
+<div class="d-flex justify-content-between align-items-center mb-3 screen-only">
+  <div class="d-flex gap-2 align-items-center">
+    <div class="nav-period d-flex gap-1">
+      {% if period == 'Daily' %}
+        <a href="{{ url_for('reports.daily_report', date=(start | to_date - timedelta(days=1)).isoformat()) }}" class="btn btn-sm btn-outline-secondary">‹ Prev</a>
+        <a href="{{ url_for('reports.daily_report') }}" class="btn btn-sm btn-outline-success">Today</a>
+        {% if start < today_str %}
+          <a href="{{ url_for('reports.daily_report', date=(start | to_date + timedelta(days=1)).isoformat()) }}" class="btn btn-sm btn-outline-secondary">Next ›</a>
+        {% endif %}
+      {% elif period == 'Weekly' %}
+        <a href="{{ url_for('reports.weekly_report', offset=offset+1) }}" class="btn btn-sm btn-outline-secondary">‹ Prev Week</a>
+        <a href="{{ url_for('reports.weekly_report') }}" class="btn btn-sm btn-outline-success">This Week</a>
+        {% if offset > 0 %}
+          <a href="{{ url_for('reports.weekly_report', offset=offset-1) }}" class="btn btn-sm btn-outline-secondary">Next Week ›</a>
+        {% endif %}
+      {% elif period == 'Monthly' %}
+        <a href="{{ url_for('reports.monthly_report', offset=offset+1) }}" class="btn btn-sm btn-outline-secondary">‹ Prev Month</a>
+        <a href="{{ url_for('reports.monthly_report') }}" class="btn btn-sm btn-outline-success">This Month</a>
+        {% if offset > 0 %}
+          <a href="{{ url_for('reports.monthly_report', offset=offset-1) }}" class="btn btn-sm btn-outline-secondary">Next Month ›</a>
+        {% endif %}
+      {% endif %}
+    </div>
+    <span class="badge bg-success fs-6 px-3">{{ period_label }}</span>
+  </div>
+  <button onclick="window.print()" class="btn btn-primary btn-sm">
+    <i class="bi bi-printer me-1"></i>Print Report
+  </button>
+</div>
+
+<!-- Screen stat cards -->
+<div class="stats-row mb-4 screen-only">
+  <div class="stat-card stat-success">
+    <div class="stat-icon"><i class="bi bi-cash-coin"></i></div>
+    <div class="stat-body">
+      <div class="stat-value">₱{{ "%.2f"|format(data.revenue) }}</div>
+      <div class="stat-label">Total Revenue</div>
+    </div>
+  </div>
+  <div class="stat-card stat-primary">
+    <div class="stat-icon"><i class="bi bi-graph-up-arrow"></i></div>
+    <div class="stat-body">
+      <div class="stat-value">₱{{ "%.2f"|format(data.profit) }}</div>
+      <div class="stat-label">Gross Profit</div>
+    </div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-icon"><i class="bi bi-receipt"></i></div>
+    <div class="stat-body">
+      <div class="stat-value">{{ data.txn_count }}</div>
+      <div class="stat-label">Transactions</div>
+    </div>
+  </div>
+  <div class="stat-card stat-warning">
+    <div class="stat-icon"><i class="bi bi-tags"></i></div>
+    <div class="stat-body">
+      <div class="stat-value">₱{{ "%.2f"|format(data.discounts) }}</div>
+      <div class="stat-label">Discounts Given</div>
+    </div>
+  </div>
+  <div class="stat-card" style="background:linear-gradient(135deg,#e8f5e9,#c8e6c9);">
+    <div class="stat-icon" style="color:#388e3c;"><i class="bi bi-box-arrow-in-down"></i></div>
+    <div class="stat-body">
+      <div class="stat-value" style="color:#388e3c;">+{{ data.stock_received }}</div>
+      <div class="stat-label">Units Received</div>
+    </div>
+  </div>
+  <div class="stat-card" style="background:linear-gradient(135deg,#fff3e0,#ffe0b2);">
+    <div class="stat-icon" style="color:#e65100;"><i class="bi bi-box-arrow-up"></i></div>
+    <div class="stat-body">
+      <div class="stat-value" style="color:#e65100;">-{{ data.stock_out }}</div>
+      <div class="stat-label">Units Sold</div>
+    </div>
+  </div>
+</div>
+
+<!-- Trend chart (screen only) -->
+{% if data.daily_breakdown|length > 1 %}
+<div class="vsms-card mb-4 screen-only">
+  <div class="card-header-vsms"><h3>Sales Trend</h3></div>
+  <div class="p-3"><canvas id="trendChart" height="70"></canvas></div>
+</div>
+{% endif %}
+
+<!-- Screen: Daily Breakdown -->
+{% if data.daily_breakdown|length > 1 %}
+<div class="vsms-card mb-4 screen-only">
+  <div class="card-header-vsms"><h3>Daily Breakdown</h3></div>
+  <div class="table-responsive">
+    <table class="vsms-table mb-0">
+      <thead><tr><th>Date</th><th>Transactions</th><th class="text-end">Revenue</th></tr></thead>
+      <tbody>
+        {% for row in data.daily_breakdown %}
+        <tr>
+          <td>{{ row.date }}</td>
+          <td>{{ row.count }}</td>
+          <td class="text-end">₱{{ "%.2f"|format(row.revenue) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="fw-bold">
+          <td>TOTAL</td>
+          <td>{{ data.txn_count }}</td>
+          <td class="text-end">₱{{ "%.2f"|format(data.revenue) }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Screen: Category Sales -->
+{% if data.category_sales %}
+<div class="vsms-card mb-4 screen-only">
+  <div class="card-header-vsms"><h3>Sales by Category</h3></div>
+  <div class="table-responsive">
+    <table class="vsms-table mb-0">
+      <thead><tr><th>Category</th><th>Units Sold</th><th class="text-end">Revenue</th><th class="text-end">% Share</th></tr></thead>
+      <tbody>
+        {% for cat in data.category_sales %}
+        <tr>
+          <td><span class="badge bg-success">{{ cat.category }}</span></td>
+          <td>{{ cat.units_sold }}</td>
+          <td class="text-end">₱{{ "%.2f"|format(cat.revenue) }}</td>
+          <td class="text-end">
+            {% if data.revenue > 0 %}{{ "%.1f"|format(cat.revenue / data.revenue * 100) }}%{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Screen: Top Sellers -->
+{% if data.top_sellers %}
+<div class="vsms-card mb-4 screen-only">
+  <div class="card-header-vsms"><h3><i class="bi bi-trophy-fill text-warning me-2"></i>Top Selling Products</h3></div>
+  <div class="table-responsive">
+    <table class="vsms-table mb-0">
+      <thead>
+        <tr><th>#</th><th>Product</th><th>Category</th><th>Qty Sold</th><th class="text-end">Revenue</th><th class="text-end">Profit</th></tr>
+      </thead>
+      <tbody>
+        {% for p in data.top_sellers %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ p.product_name }}</td>
+          <td><span class="badge bg-secondary">{{ p.category }}</span></td>
+          <td>{{ p.total_sold }} {{ p.unit }}</td>
+          <td class="text-end">₱{{ "%.2f"|format(p.revenue) }}</td>
+          <td class="text-end text-success">₱{{ "%.2f"|format(p.profit) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Screen: Low Stock -->
+<div class="vsms-card mb-4 screen-only">
+  <div class="card-header-vsms">
+    <h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Low Stock Inventory</h3>
+  </div>
+  {% if data.low_stock %}
+  <div class="table-responsive">
+    <table class="vsms-table mb-0">
+      <thead><tr><th>Product</th><th>Category</th><th>Current Stock</th><th>Threshold</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for item in data.low_stock %}
+        <tr>
+          <td>{{ item.product_name }}</td>
+          <td>{{ item.category }}</td>
+          <td>{{ item.stock }} {{ item.unit }}</td>
+          <td>{{ item.low_stock_threshold }}</td>
+          <td>
+            {% if item.stock == 0 %}
+              <span class="badge bg-danger">Out of Stock</span>
+            {% else %}
+              <span class="badge bg-warning text-dark">Low Stock</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center py-3 text-muted">
+    <i class="bi bi-check-circle-fill text-success me-2"></i>All products are sufficiently stocked.
+  </div>
+  {% endif %}
+</div>
+
+{% if data.txn_count == 0 %}
+<div class="alert alert-info screen-only">
+  <i class="bi bi-info-circle me-2"></i>No sales transactions recorded for this period.
+</div>
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script>
+{% if data.daily_breakdown|length > 1 %}
+const trendCtx = document.getElementById('trendChart');
+if (trendCtx) {
+  new Chart(trendCtx, {
+    type: 'bar',
+    data: {
+      labels: {{ data.daily_breakdown | map(attribute='date') | list | tojson }},
+      datasets: [{
+        label: 'Revenue (₱)',
+        data: {{ data.daily_breakdown | map(attribute='revenue') | list | tojson }},
+        backgroundColor: 'rgba(46,125,50,0.65)',
+        borderColor: '#2e7d32',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { callback: v => '₱'+v.toLocaleString() } } }
+    }
+  });
+}
+{% endif %}
+</script>
+{% endblock %}

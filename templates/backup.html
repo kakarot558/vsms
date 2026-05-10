@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Backup & Restore — VSMS{% endblock %}
+{% block page_title %}Backup & Restore{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <!-- Create Backup Card -->
+  <div class="col-md-6">
+    <div class="card vsms-card h-100">
+      <div class="card-header-vsms">
+        <h3><i class="bi bi-cloud-arrow-up-fill me-2 text-success"></i>Create Backup</h3>
+      </div>
+      <div class="card-body p-4">
+        <p class="text-muted mb-3">Creates a timestamped snapshot of the entire database including inventory, sales, users, and all records.</p>
+        <form method="POST" action="{{ url_for('backup.create_backup') }}">
+          <button type="submit" class="btn btn-success w-100 btn-lg">
+            <i class="bi bi-download me-2"></i>Create Backup Now
+          </button>
+        </form>
+        <hr>
+        <h6 class="text-muted"><i class="bi bi-info-circle me-1"></i>What gets backed up:</h6>
+        <ul class="text-muted small mb-0">
+          <li>All product & inventory records</li>
+          <li>Sales & transaction history</li>
+          <li>Purchase orders</li>
+          <li>User accounts</li>
+          <li>Supplier directory</li>
+          <li>Audit logs & alerts</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Restore from Upload Card -->
+  <div class="col-md-6">
+    <div class="card vsms-card h-100">
+      <div class="card-header-vsms">
+        <h3><i class="bi bi-cloud-arrow-down-fill me-2 text-warning"></i>Restore from File</h3>
+      </div>
+      <div class="card-body p-4">
+        <div class="alert alert-warning py-2 small mb-3">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i>
+          <strong>Warning:</strong> Restoring will replace ALL current data. A safety backup is automatically created before restoring.
+        </div>
+        <form method="POST" action="{{ url_for('backup.restore_backup') }}" enctype="multipart/form-data">
+          <input type="hidden" name="source" value="file">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Upload Backup File (.db)</label>
+            <input type="file" name="backup_file" accept=".db" class="form-control" required>
+            <div class="form-text">Only .db files exported from this system are accepted.</div>
+          </div>
+          <button type="submit" class="btn btn-warning w-100"
+                  onclick="return confirm('Are you sure? This will replace ALL current data with the backup. A safety copy will be made first.')">
+            <i class="bi bi-arrow-counterclockwise me-2"></i>Restore from Upload
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup History Table -->
+  <div class="col-12">
+    <div class="card vsms-card">
+      <div class="card-header-vsms d-flex justify-content-between align-items-center">
+        <h3 class="mb-0"><i class="bi bi-archive-fill me-2"></i>Saved Backups</h3>
+        <span class="badge bg-secondary">{{ backup_files|length }} files</span>
+      </div>
+      <div class="card-body p-0">
+        {% if backup_files %}
+        <div class="table-responsive">
+          <table class="vsms-table mb-0">
+            <thead>
+              <tr>
+                <th>Filename</th>
+                <th>Created</th>
+                <th>Size</th>
+                <th class="text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for bf in backup_files %}
+              <tr>
+                <td>
+                  <i class="bi bi-database-fill text-success me-2"></i>
+                  <code class="small">{{ bf.name }}</code>
+                  {% if bf.name.startswith('pre_restore_') %}
+                    <span class="badge bg-warning text-dark ms-2 small">Safety Copy</span>
+                  {% endif %}
+                </td>
+                <td>{{ bf.created }}</td>
+                <td>{{ bf.size_kb }} KB</td>
+                <td class="text-center">
+                  <a href="{{ url_for('backup.download_backup', filename=bf.name) }}"
+                     class="btn btn-sm btn-outline-success me-1">
+                    <i class="bi bi-download"></i> Download
+                  </a>
+                  <form method="POST" action="{{ url_for('backup.restore_backup') }}" class="d-inline"
+                        onsubmit="return confirm('Restore from {{ bf.name }}? Current data will be replaced. A safety backup is made first.')">
+                    <input type="hidden" name="source" value="existing">
+                    <input type="hidden" name="filename" value="{{ bf.name }}">
+                    <button type="submit" class="btn btn-sm btn-outline-warning me-1">
+                      <i class="bi bi-arrow-counterclockwise"></i> Restore
+                    </button>
+                  </form>
+                  <form method="POST" action="{{ url_for('backup.delete_backup', filename=bf.name) }}" class="d-inline"
+                        onsubmit="return confirm('Delete {{ bf.name }}? This cannot be undone.')">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-archive" style="font-size:2.5rem;"></i>
+          <p class="mt-2">No backups yet. Create your first backup above.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

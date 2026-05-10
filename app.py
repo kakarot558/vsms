@@ -29,7 +29,13 @@ def todict_filter(row):
 # ── Global template variables ─────────────────────────────────────────────────
 @app.context_processor
 def inject_globals():
-    return {'today': _date.today()}
+    from datetime import timedelta, datetime
+    return {
+        'today': _date.today(),
+        'today_str': _date.today().isoformat(),
+        'timedelta': timedelta,
+        'now': datetime.now,
+    }
 
 # ── Blueprints ────────────────────────────────────────────────────────────────
 from routes.auth_routes import auth_bp
@@ -42,6 +48,7 @@ from routes.report_routes import report_bp
 from routes.alert_routes import alert_bp
 from routes.user_routes import user_bp
 from routes.po_routes import po_bp
+from routes.backup_routes import backup_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
@@ -53,6 +60,7 @@ app.register_blueprint(report_bp)
 app.register_blueprint(alert_bp)
 app.register_blueprint(user_bp)
 app.register_blueprint(po_bp)
+app.register_blueprint(backup_bp)
 
 # ── Root route ────────────────────────────────────────────────────────────────
 @app.route('/')

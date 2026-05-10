@@ -35,6 +35,7 @@ def log_audit(user_id, action, module, description):
 
 @inventory_bp.route('/inventory')
 @login_required
+@role_required('admin', 'inventory_manager')
 def index():
     conn = get_db()
     today = date.today().isoformat()
