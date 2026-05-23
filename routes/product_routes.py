@@ -1,9 +1,9 @@
-from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify, Response
 from database.db import get_db
 from werkzeug.utils import secure_filename
 from functools import wraps
 from datetime import datetime
-import os, random, string
+import os, random, string, csv, io
 
 product_bp = Blueprint('products', __name__)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
@@ -246,3 +246,177 @@ def batches(pid):
         WHERE pb.product_id=? ORDER BY pb.expiration_date ASC""", (pid,)).fetchall()
     conn.close()
     return jsonify({'product': dict(product), 'batches': [dict(b) for b in batches]})
+
+
+# ── EXPORT ──────────────────────────────────────────────────────────────────
+
+EXPORT_COLUMNS = [
+    'product_name', 'barcode', 'category', 'brand', 'description',
+    'price', 'cost_price', 'stock', 'unit', 'low_stock_threshold',
+    'requires_prescription'
+]
+
+@product_bp.route('/products/export')
+@login_required
+def export_csv():
+    conn = get_db()
+    products = conn.execute(
+        "SELECT " + ", ".join(EXPORT_COLUMNS) +
+        " FROM products WHERE is_active=1 ORDER BY product_name"
+    ).fetchall()
+    conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(EXPORT_COLUMNS)
+    for p in products:
+        writer.writerow([p[c] for c in EXPORT_COLUMNS])
+
+    filename = f"products_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    log_audit(session['user_id'], 'EXPORT', 'Products', f"Exported {len(products)} products to CSV")
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
+
+
+# ── CSV TEMPLATE ─────────────────────────────────────────────────────────────
+
+@product_bp.route('/products/import/template')
+@login_required
+def download_template():
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(EXPORT_COLUMNS)
+    # One example row
+    writer.writerow([
+        'Sample Product', '', 'Veterinary Medicine', 'BrandX',
+        'Sample description', '99.99', '60.00', '50', 'pcs', '10', '0'
+    ])
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="products_import_template.csv"'}
+    )
+
+
+# ── IMPORT ───────────────────────────────────────────────────────────────────
+
+@product_bp.route('/products/import', methods=['POST'])
+@login_required
+@role_required('admin', 'inventory_manager')
+def import_csv():
+    if 'csv_file' not in request.files:
+        flash('No file uploaded.', 'danger')
+        return redirect(url_for('products.index'))
+
+    file = request.files['csv_file']
+    if not file or not file.filename.endswith('.csv'):
+        flash('Please upload a valid CSV file.', 'danger')
+        return redirect(url_for('products.index'))
+
+    stream = io.StringIO(file.stream.read().decode('utf-8-sig'))
+    reader = csv.DictReader(stream)
+
+    required_cols = {'product_name', 'price'}
+    if not required_cols.issubset(set(reader.fieldnames or [])):
+        missing = required_cols - set(reader.fieldnames or [])
+        flash(f'CSV is missing required column(s): {", ".join(missing)}', 'danger')
+        return redirect(url_for('products.index'))
+
+    conn = get_db()
+    created = updated = skipped = 0
+    errors = []
+
+    for i, row in enumerate(reader, start=2):  # row 1 = header
+        product_name = (row.get('product_name') or '').strip()
+        price_raw    = (row.get('price') or '').strip()
+
+        if not product_name:
+            errors.append(f"Row {i}: product_name is empty — skipped.")
+            skipped += 1
+            continue
+        try:
+            price = float(price_raw)
+        except ValueError:
+            errors.append(f"Row {i}: invalid price '{price_raw}' — skipped.")
+            skipped += 1
+            continue
+
+        barcode           = (row.get('barcode') or '').strip() or generate_barcode()
+        category          = (row.get('category') or 'Uncategorized').strip()
+        brand             = (row.get('brand') or '').strip()
+        description       = (row.get('description') or '').strip()
+        unit              = (row.get('unit') or 'pcs').strip()
+
+        try:
+            cost_price        = float(row.get('cost_price') or 0)
+            stock             = int(float(row.get('stock') or 0))
+            low_stock_threshold = int(float(row.get('low_stock_threshold') or 10))
+            requires_rx       = int(float(row.get('requires_prescription') or 0))
+        except (ValueError, TypeError):
+            errors.append(f"Row {i}: numeric conversion error — skipped.")
+            skipped += 1
+            continue
+
+        try:
+            existing = conn.execute(
+                "SELECT product_id, stock FROM products WHERE barcode=? AND is_active=1",
+                (barcode,)
+            ).fetchone()
+
+            if existing:
+                conn.execute("""
+                    UPDATE products SET
+                        product_name=?, category=?, brand=?, description=?,
+                        price=?, cost_price=?, unit=?, low_stock_threshold=?,
+                        requires_prescription=?, updated_at=CURRENT_TIMESTAMP
+                    WHERE product_id=?
+                """, (product_name, category, brand, description,
+                      price, cost_price, unit, low_stock_threshold,
+                      requires_rx, existing['product_id']))
+                updated += 1
+            else:
+                conn.execute("""
+                    INSERT INTO products
+                        (product_name, barcode, category, brand, description,
+                         price, cost_price, stock, unit, low_stock_threshold,
+                         requires_prescription)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """, (product_name, barcode, category, brand, description,
+                      price, cost_price, stock, unit, low_stock_threshold,
+                      requires_rx))
+                pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                if stock > 0:
+                    batch_num = f"IMPORT-{product_name[:3].upper()}-{datetime.now().strftime('%Y%m%d')}"
+                    conn.execute("""
+                        INSERT INTO product_batches
+                            (product_id, batch_number, quantity, remaining_quantity)
+                        VALUES (?,?,?,?)
+                    """, (pid, batch_num, stock, stock))
+                    conn.execute("""
+                        INSERT INTO inventory_logs
+                            (product_id, user_id, action, quantity_change,
+                             quantity_before, quantity_after, notes)
+                        VALUES (?,?,'stock_in',?,0,?,'CSV Import')
+                    """, (pid, session['user_id'], stock, stock))
+                created += 1
+        except Exception as e:
+            errors.append(f"Row {i}: {str(e)} — skipped.")
+            skipped += 1
+            continue
+
+    conn.commit()
+    conn.close()
+
+    summary = f"Import complete: {created} created, {updated} updated, {skipped} skipped."
+    log_audit(session['user_id'], 'IMPORT', 'Products', summary)
+
+    if errors:
+        flash(summary + " Errors: " + " | ".join(errors[:5]) +
+              (f" … and {len(errors)-5} more." if len(errors) > 5 else ""), 'warning')
+    else:
+        flash(summary, 'success')
+
+    return redirect(url_for('products.index'))

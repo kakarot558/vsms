@@ -169,11 +169,17 @@
       <button class="vt-btn" id="listViewBtn" onclick="setView('list')" title="List view"><i class="bi bi-list-ul"></i></button>
     </div>
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap">
     <button class="btn-vsms-outline" onclick="openBulkBarcode()">
       <i class="bi bi-upc me-1"></i>Print Labels
     </button>
+    <a href="{{ url_for('products.export_csv') }}" class="btn-vsms-outline">
+      <i class="bi bi-download me-1"></i>Export CSV
+    </a>
     {% if session.role in ['admin','inventory_manager'] %}
+    <button class="btn-vsms-outline" onclick="openImportModal()">
+      <i class="bi bi-upload me-1"></i>Import CSV
+    </button>
     <button class="btn-vsms btn-add" onclick="openAddModal()">
       <i class="bi bi-plus-circle-fill me-1"></i>Add Product
     </button>
@@ -458,6 +464,91 @@
       <div class="modal-footer">
         <button class="btn-vsms-outline" data-bs-dismiss="modal">Cancel</button>
         <button class="btn-vsms" onclick="executePrint()"><i class="bi bi-printer me-1"></i>Print Labels</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Import CSV Modal ─────────────────────────────────────────────── -->
+<div class="modal fade" id="importModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="border-radius:16px;border:none;box-shadow:0 20px 60px rgba(0,0,0,.18)">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1e3a5f,#2563eb);border-radius:16px 16px 0 0;border:none;padding:1.2rem 1.5rem">
+        <div class="d-flex align-items-center gap-2">
+          <div style="width:36px;height:36px;background:rgba(255,255,255,.15);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff"><i class="bi bi-upload"></i></div>
+          <div>
+            <h5 class="modal-title mb-0" style="color:#fff;font-weight:800">Bulk Import Products</h5>
+            <small style="color:rgba(255,255,255,.7)">Upload a CSV file to add or update products</small>
+          </div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <!-- Instructions -->
+        <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:1rem 1.2rem;margin-bottom:1.2rem">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="bi bi-info-circle-fill" style="color:#1e3a5f"></i>
+            <strong style="font-size:.85rem;color:#1e3a5f">CSV Format Guide</strong>
+          </div>
+          <p style="font-size:.78rem;color:#374151;margin-bottom:.5rem">Your CSV must include these columns (header row required):</p>
+          <div style="background:#fff;border-radius:8px;padding:.6rem .9rem;font-family:monospace;font-size:.73rem;color:#374151;border:1px solid #e2e8f0;overflow-x:auto;white-space:nowrap">
+            product_name, barcode, category, brand, description, price, cost_price, stock, unit, low_stock_threshold, requires_prescription
+          </div>
+          <ul style="font-size:.75rem;color:#4b5563;margin:.7rem 0 0 1rem;padding:0">
+            <li><strong>product_name</strong> and <strong>price</strong> are required. All other columns are optional.</li>
+            <li>If a <strong>barcode</strong> already exists, the product will be <strong>updated</strong> (not duplicated).</li>
+            <li><strong>requires_prescription</strong>: use 1 for yes, 0 for no.</li>
+            <li>Leave <strong>barcode</strong> blank to auto-generate one.</li>
+          </ul>
+          <div class="mt-2">
+            <a href="{{ url_for('products.download_template') }}" style="font-size:.78rem;color:#1e3a5f;font-weight:700;text-decoration:none">
+              <i class="bi bi-file-earmark-arrow-down me-1"></i>Download Template CSV
+            </a>
+          </div>
+        </div>
+
+        <!-- Drop zone -->
+        <form id="importForm" action="{{ url_for('products.import_csv') }}" method="POST" enctype="multipart/form-data">
+          <div id="importDropZone" style="border:2.5px dashed #bfdbfe;border-radius:14px;padding:2.5rem 1rem;text-align:center;cursor:pointer;transition:all .2s;background:#fafcff" onclick="document.getElementById('importFileInput').click()" ondragover="importDragOver(event)" ondragleave="importDragLeave(event)" ondrop="importDrop(event)">
+            <div id="importDropContent">
+              <i class="bi bi-cloud-upload" style="font-size:2.4rem;color:#93c5fd;display:block;margin-bottom:.5rem"></i>
+              <div style="font-weight:700;color:#1e3a5f;margin-bottom:.3rem">Drop your CSV file here</div>
+              <div style="font-size:.8rem;color:#aaa">or click to browse</div>
+            </div>
+            <div id="importFileChosen" style="display:none">
+              <i class="bi bi-file-earmark-check" style="font-size:2rem;color:#22c55e;display:block;margin-bottom:.4rem"></i>
+              <div id="importFileName" style="font-weight:700;color:#1e3a5f"></div>
+              <div style="font-size:.78rem;color:#aaa">Click to choose a different file</div>
+            </div>
+            <input type="file" id="importFileInput" name="csv_file" accept=".csv" style="display:none" onchange="importFileSelected(this)">
+          </div>
+
+          <!-- Preview area -->
+          <div id="importPreview" style="display:none;margin-top:1rem">
+            <div style="background:#f8fafc;border-radius:10px;padding:.8rem 1rem;border:1.5px solid #e2e8f0">
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <i class="bi bi-table" style="color:#1e3a5f;font-size:.9rem"></i>
+                <strong style="font-size:.83rem;color:#1e3a5f">Preview (first 5 rows)</strong>
+                <span id="importRowCount" style="margin-left:auto;font-size:.75rem;color:#6b7280"></span>
+              </div>
+              <div style="overflow-x:auto">
+                <table class="table table-sm table-hover mb-0" id="importPreviewTable" style="font-size:.74rem"></table>
+              </div>
+            </div>
+          </div>
+
+          <div id="importErrorMsg" class="alert alert-danger mt-3" style="display:none;border-radius:10px;font-size:.82rem"></div>
+        </form>
+      </div>
+      <div class="modal-footer" style="border-top:1.5px solid #f1f5f9;padding:.9rem 1.5rem;gap:.6rem">
+        <div id="importProgress" style="display:none;flex:1;align-items:center;gap:.6rem" class="d-flex">
+          <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+          <span style="font-size:.82rem;color:#1e3a5f">Importing products…</span>
+        </div>
+        <button type="button" class="btn-vsms-outline" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn-vsms" id="importSubmitBtn" onclick="submitImport()" disabled>
+          <i class="bi bi-upload me-1"></i>Import Products
+        </button>
       </div>
     </div>
   </div>
@@ -900,6 +991,120 @@ function executePrint() {
   <\/script>
   </body></html>`);
   w.document.close();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BULK IMPORT / EXPORT
+═══════════════════════════════════════════════════════════════════ */
+function openImportModal() {
+  resetImportModal();
+  new bootstrap.Modal(document.getElementById('importModal')).show();
+}
+
+function resetImportModal() {
+  document.getElementById('importDropContent').style.display = '';
+  document.getElementById('importFileChosen').style.display = 'none';
+  document.getElementById('importFileInput').value = '';
+  document.getElementById('importPreview').style.display = 'none';
+  document.getElementById('importErrorMsg').style.display = 'none';
+  document.getElementById('importSubmitBtn').disabled = true;
+  document.getElementById('importProgress').style.display = 'none';
+}
+
+function importDragOver(e) {
+  e.preventDefault();
+  document.getElementById('importDropZone').style.borderColor = '#2563eb';
+  document.getElementById('importDropZone').style.background = '#eff6ff';
+}
+
+function importDragLeave(e) {
+  document.getElementById('importDropZone').style.borderColor = '#bfdbfe';
+  document.getElementById('importDropZone').style.background = '#fafcff';
+}
+
+function importDrop(e) {
+  e.preventDefault();
+  importDragLeave(e);
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    document.getElementById('importFileInput').files = dt.files;
+    importFileSelected(document.getElementById('importFileInput'));
+  }
+}
+
+function importFileSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (!file.name.endsWith('.csv')) {
+    showImportError('Please select a CSV file (.csv).');
+    return;
+  }
+  document.getElementById('importDropContent').style.display = 'none';
+  document.getElementById('importFileChosen').style.display = '';
+  document.getElementById('importFileName').textContent = file.name;
+  document.getElementById('importErrorMsg').style.display = 'none';
+  parseCSVPreview(file);
+}
+
+function parseCSVPreview(file) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split('\n').filter(l => l.trim());
+    if (lines.length < 2) { showImportError('CSV must have a header row and at least one data row.'); return; }
+
+    const headers = parseCSVRow(lines[0]);
+    const required = ['product_name', 'price'];
+    const missing = required.filter(h => !headers.includes(h));
+    if (missing.length) { showImportError('Missing required columns: ' + missing.join(', ')); return; }
+
+    const dataRows = lines.slice(1, 6); // preview up to 5
+    const totalData = lines.length - 1;
+
+    // Build preview table
+    const tbl = document.getElementById('importPreviewTable');
+    let html = '<thead><tr>' + headers.map(h => `<th style="white-space:nowrap;font-weight:700;color:#1e3a5f;background:#eff6ff">${h}</th>`).join('') + '</tr></thead><tbody>';
+    dataRows.forEach(row => {
+      const cells = parseCSVRow(row);
+      html += '<tr>' + cells.map(c => `<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c}">${c}</td>`).join('') + '</tr>';
+    });
+    html += '</tbody>';
+    tbl.innerHTML = html;
+
+    document.getElementById('importRowCount').textContent = `${totalData} product${totalData !== 1 ? 's' : ''} to import`;
+    document.getElementById('importPreview').style.display = '';
+    document.getElementById('importSubmitBtn').disabled = false;
+  };
+  reader.readAsText(file);
+}
+
+function parseCSVRow(row) {
+  const result = [];
+  let cur = '', inQuote = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (ch === '"') { inQuote = !inQuote; }
+    else if (ch === ',' && !inQuote) { result.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function showImportError(msg) {
+  const el = document.getElementById('importErrorMsg');
+  el.textContent = msg;
+  el.style.display = '';
+  document.getElementById('importSubmitBtn').disabled = true;
+}
+
+function submitImport() {
+  const fileInput = document.getElementById('importFileInput');
+  if (!fileInput.files[0]) { showImportError('Please select a CSV file first.'); return; }
+  document.getElementById('importProgress').style.display = 'flex';
+  document.getElementById('importSubmitBtn').disabled = true;
+  document.getElementById('importForm').submit();
 }
 </script>
 {% endblock %}
